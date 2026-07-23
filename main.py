@@ -1,7 +1,35 @@
+import os
+import logging
+import asyncio
+from urllib.parse import urlparse
+from fastapi import FastAPI, Request, Response, HTTPException, status
+import httpx
+
+app = FastAPI()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 BYBIT_API = "https://api.bybit.com"
 KEEP_ALIVE_URL = f"{BYBIT_API}/v5/market/time"
 
-...
+# Получаем секретный ключ из переменных окружения
+# Если переменная не задана, задается запасное значение для тестов
+PROXY_SECRET = os.getenv("PROXY_SECRET", "MY_SECRET_KEY")
+
+async def keep_alive():
+    while True:
+        await asyncio.sleep(840)
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(KEEP_ALIVE_URL)
+                logger.info(f"♻️ Keep-Alive ping: {resp.status_code}")
+        except Exception as e:
+            logger.error(f"Keep-Alive упал: {e}")
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(keep_alive())
+    logger.info("🚀 Прокси запущен")
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy(request: Request, path: str):
@@ -25,7 +53,7 @@ async def proxy(request: Request, path: str):
             raise HTTPException(status_code=400, detail="Invalid 'url' parameter")
         target_url = explicit_url
     else:
-        # Старый режим: путь форвардится на Bybit, как раньше (Worker не трогаем)
+        # Старый режим: путь форвардится на Bybit, как раньше
         target_url = f"{BYBIT_API}/{path}"
 
     body = await request.body()
