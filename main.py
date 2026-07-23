@@ -3,44 +3,36 @@ import httpx
 import asyncio
 import logging
 
-# ⚠️ ВАЖНО: переменная должна называться app
 app = FastAPI()
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Базовый URL Bybit API
-BYBIT_API = "https://api.bybit.com"
+# ЯВНО УКАЗЫВАЕМ ОСНОВНУЮ СЕТЬ BYBIT
+BYBIT_API = "https://api.bybit.com"  # <-- ЭТО ГЛАВНОЕ
 
-# --- Функция Keep-Alive (чтобы Render не засыпал) ---
 async def keep_alive():
-    """Раз в 14 минут стучим в Bybit, чтобы Render держал инстанс живым"""
     while True:
-        await asyncio.sleep(840)  # 840 секунд = 14 минут
+        await asyncio.sleep(840)
         try:
             async with httpx.AsyncClient() as client:
+                # Пинг в основную сеть
                 resp = await client.get(f"{BYBIT_API}/v5/market/time")
-                logger.info(f"♻️ Keep-Alive ping: {resp.status_code}")
+                logger.info(f"♻️ Keep-Alive ping: {resp.status_code} - {resp.text[:50]}")
         except Exception as e:
             logger.error(f"Keep-Alive упал: {e}")
 
-# Запускаем keep-alive в фоновом режиме при старте сервера
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(keep_alive())
+    logger.info(f"🚀 Прокси запущен, целевой API: {BYBIT_API}")
 
-# --- Главный прокси-эндпоинт ---
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy(request: Request, path: str):
-    """
-    Проксирует любой запрос на api.bybit.com
-    """
     url = f"{BYBIT_API}/{path}"
     body = await request.body()
     headers = dict(request.headers)
     
-    # Убираем заголовки, связанные с хостом
     headers.pop("host", None)
     headers.pop("content-length", None)
     
@@ -54,6 +46,8 @@ async def proxy(request: Request, path: str):
                 headers=headers,
                 content=body,
             )
+            
+            logger.info(f"✅ Ответ от Bybit: {resp.status_code} для {url}")
             
             return Response(
                 content=resp.content,
