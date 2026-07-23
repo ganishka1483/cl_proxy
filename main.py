@@ -2,22 +2,12 @@ from fastapi import FastAPI, Request, Response
 import httpx
 import asyncio
 import logging
-import os  # <-- Добавляем, чтобы проверить переменные окружения
 
 app = FastAPI()
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Проверяем, нет ли переменной окружения, которая переопределяет URL
-ENV_API_URL = os.getenv("BYBIT_API", None)
-if ENV_API_URL:
-    logger.warning(f"⚠️ Найдена переменная окружения BYBIT_API: {ENV_API_URL}")
-    BYBIT_API = ENV_API_URL
-else:
-    BYBIT_API = "https://api.bybit.com"
-
-logger.info(f"🚀 Целевой API установлен: {BYBIT_API}")
+BYBIT_API = "https://api.bybit.com"
 
 async def keep_alive():
     while True:
@@ -32,18 +22,27 @@ async def keep_alive():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(keep_alive())
-    logger.info(f"✅ Прокси запущен, целевой API: {BYBIT_API}")
+    logger.info(f"🚀 Прокси запущен, целевой API: {BYBIT_API}")
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy(request: Request, path: str):
     url = f"{BYBIT_API}/{path}"
     body = await request.body()
-    headers = dict(request.headers)
-    headers.pop("host", None)
-    headers.pop("content-length", None)
-
-    logger.info(f"➡️ Прокси: {request.method} {url}")  # <-- Здесь будет видно реальный URL
-
+    
+    # Формируем новые заголовки, чтобы точно указать версию API
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "X-API-Version": "v5"  # <-- КЛЮЧЕВОЙ МОМЕНТ: Явно говорим, что хотим v5
+    }
+    
+    # Добавляем оригинальные заголовки, которые не конфликтуют
+    for key, value in request.headers.items():
+        if key.lower() not in ["host", "content-length", "x-api-version", "user-agent", "accept"]:
+            headers[key] = value
+    
+    logger.info(f"➡️ Прокси: {request.method} {url}")
+    
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.request(
