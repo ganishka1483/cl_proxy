@@ -1,13 +1,18 @@
-from fastapi import FastAPI, Request, Response
-import httpx
-import asyncio
+import os
 import logging
+import asyncio
+from fastapi import FastAPI, Request, Response, HTTPException, status
+import httpx
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BYBIT_API = "https://api.bybit.com"
+
+# Получаем секретный ключ из переменных окружения
+# Если переменная не задана, задается запасное значение для тестов
+PROXY_SECRET = os.getenv("PROXY_SECRET", "MY_SECRET_KEY")
 
 async def keep_alive():
     while True:
@@ -26,46 +31,38 @@ async def startup_event():
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy(request: Request, path: str):
+    # --- Проверка безопасности ---
+    incoming_secret = request.headers.get("X-Proxy-Secret")
+    if incoming_secret != PROXY_SECRET:
+        logger.warning(f"⛔ Попытка неавторизованного доступа с IP: {request.client.host}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized: Invalid or missing secret token"
+        )
+    # -----------------------------
+
     url = f"{BYBIT_API}/{path}"
     body = await request.body()
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-    }
+    # Перенаправление запроса к Bybit
+    headers = dict(request.headers)
+    # Удаляем заголовок host, чтобы httpx подставил правильный host для Bybit
+    headers.pop("host", None)
     
-    for key, value in request.headers.items():
-        if key.lower() not in ["host", "content-length", "user-agent", "accept"]:
-            headers[key] = value
-    
-    logger.info(f"➡️ Прокси: {request.method} {url}?{request.query_params}")
-    
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.request(
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.request(
                 method=request.method,
                 url=url,
                 headers=headers,
-                params=request.query_params,  # <-- ТВОЯ НАХОДКА!
                 content=body,
+                params=request.query_params
             )
-            logger.info(f"✅ Ответ: {resp.status_code} для {url}")
             return Response(
-                content=resp.content,
-                status_code=resp.status_code,
-                headers=dict(resp.headers),
+                content=response.content,
+                status_code=response.status_code,
+                headers=dict(response.headers)
             )
-    except httpx.TimeoutException:
-        logger.error(f"⏰ Таймаут при запросе к {url}")
-        return Response(
-            content='{"error": "Bybit API timeout"}',
-            status_code=504,
-            media_type="application/json"
-        )
-    except Exception as e:
-        logger.error(f"❌ Ошибка прокси: {e}")
-        return Response(
-            content=f'{{"error": "Proxy error: {str(e)}"}}',
-            status_code=500,
-            media_type="application/json"
-        )
+        except Exception as e:
+            logger.error(f"Ошибка проксирования: {e}")
+            raise HTTPException(status_code=500, detail="Proxy Error")
