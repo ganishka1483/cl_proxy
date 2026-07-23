@@ -29,19 +29,16 @@ async def proxy(request: Request, path: str):
     url = f"{BYBIT_API}/{path}"
     body = await request.body()
     
-    # Формируем новые заголовки, чтобы точно указать версию API
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
-        "X-API-Version": "v5"  # <-- КЛЮЧЕВОЙ МОМЕНТ: Явно говорим, что хотим v5
     }
     
-    # Добавляем оригинальные заголовки, которые не конфликтуют
     for key, value in request.headers.items():
-        if key.lower() not in ["host", "content-length", "x-api-version", "user-agent", "accept"]:
+        if key.lower() not in ["host", "content-length", "user-agent", "accept"]:
             headers[key] = value
     
-    logger.info(f"➡️ Прокси: {request.method} {url}")
+    logger.info(f"➡️ Прокси: {request.method} {url}?{request.query_params}")
     
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -49,9 +46,10 @@ async def proxy(request: Request, path: str):
                 method=request.method,
                 url=url,
                 headers=headers,
+                params=request.query_params,  # <-- ТВОЯ НАХОДКА!
                 content=body,
             )
-            logger.info(f"✅ Ответ от Bybit: {resp.status_code} для {url}")
+            logger.info(f"✅ Ответ: {resp.status_code} для {url}")
             return Response(
                 content=resp.content,
                 status_code=resp.status_code,
