@@ -61,19 +61,26 @@ async def proxy(request: Request, path: str):
     headers.pop("host", None)
 
     async with httpx.AsyncClient() as client:
-        try:
-            response = await client.request(
-                method=request.method,
-                url=target_url,
-                headers=headers,
-                content=body,
-                params=forward_params
-            )
-            return Response(
-                content=response.content,
-                status_code=response.status_code,
-                headers=dict(response.headers)
-            )
-        except Exception as e:
-            logger.error(f"Ошибка проксирования: {e}")
-            raise HTTPException(status_code=500, detail="Proxy Error")
+    try:
+        response = await client.request(
+            method=request.method,
+            url=target_url,
+            headers=headers,
+            content=body,
+            params=forward_params
+        )
+
+        # Не пробрасываем заголовки, которые описывают исходное (сжатое)
+        # тело — httpx уже отдал нам распакованный content, старые
+        # Content-Encoding/Content-Length/Transfer-Encoding будут врать
+        excluded = {"content-encoding", "content-length", "transfer-encoding", "connection"}
+        safe_headers = {k: v for k, v in response.headers.items() if k.lower() not in excluded}
+
+        return Response(
+            content=response.content,
+            status_code=response.status_code,
+            headers=safe_headers
+        )
+    except Exception as e:
+        logger.error(f"Ошибка проксирования: {e}")
+        raise HTTPException(status_code=500, detail="Proxy Error")
