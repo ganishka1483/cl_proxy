@@ -63,6 +63,7 @@ async def proxy(request: Request, path: str):
     body = await request.body()
     headers = dict(request.headers)
     headers.pop("host", None)
+    headers.pop("accept-encoding", None)
 
     try:
         response = await http_client.request(
