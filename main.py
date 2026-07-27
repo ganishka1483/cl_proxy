@@ -1,6 +1,5 @@
 import os
 import logging
-import asyncio
 from urllib.parse import urlparse
 from fastapi import FastAPI, Request, Response, HTTPException, status
 import httpx
@@ -10,28 +9,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BYBIT_API = "https://api.bybit.com"
-KEEP_ALIVE_URL = f"{BYBIT_API}/v5/market/time"
-
 PROXY_SECRET = os.getenv("PROXY_SECRET", "MY_SECRET_KEY")
 
-# Один общий клиент на всё приложение, а не по одному на каждый запрос —
-# так пул соединений переиспользуется, а не создаётся/уничтожается заново
+# Общий HTTP-клиент для переиспользования соединений
 http_client: httpx.AsyncClient | None = None
-
-async def keep_alive():
-    while True:
-        await asyncio.sleep(840)
-        try:
-            resp = await http_client.get(KEEP_ALIVE_URL)
-            logger.info(f"♻️ Keep-Alive ping: {resp.status_code}")
-        except Exception as e:
-            logger.error(f"Keep-Alive упал: {e}")
 
 @app.on_event("startup")
 async def startup_event():
     global http_client
     http_client = httpx.AsyncClient(timeout=15.0)
-    asyncio.create_task(keep_alive())
     logger.info("🚀 Прокси запущен")
 
 @app.on_event("shutdown")
