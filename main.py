@@ -1,5 +1,6 @@
 import os
 import logging
+import json
 from urllib.parse import urlparse
 from fastapi import FastAPI, Request, Response, HTTPException, status
 import httpx
@@ -59,6 +60,31 @@ async def proxy(request: Request, path: str):
             content=body,
             params=forward_params
         )
+
+        # Оптимизация: Обрезка JSON только для массовых тиков крона (без конкретного symbol)
+        if (
+            "v5/market/tickers" in path
+            and "symbol" not in forward_params
+            and response.status_code == 200
+        ):
+            try:
+                raw_data = response.json()
+                if raw_data.get("retCode") == 0:
+                    prices = {}
+                    for item in raw_data.get("result", {}).get("list", []):
+                        symbol = item.get("symbol", "")
+                        if symbol.endswith("USDT"):
+                            coin = symbol.replace("USDT", "")
+                            prices[coin] = float(item.get("lastPrice") or 0)
+
+                    trimmed_body = json.dumps({"retCode": 0, "prices": prices})
+                    return Response(
+                        content=trimmed_body,
+                        status_code=200,
+                        headers={"content-type": "application/json"}
+                    )
+            except Exception as e:
+                logger.error(f"Ошибка сжатия JSON: {e}")
 
         excluded = {"content-encoding", "content-length", "transfer-encoding", "connection"}
         safe_headers = {k: v for k, v in response.headers.items() if k.lower() not in excluded}
