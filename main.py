@@ -26,6 +26,10 @@ async def shutdown_event():
     if http_client:
         await http_client.aclose()
 
+@app.get("/ping")
+async def ping():
+    return {"status": "awake"}
+
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy(request: Request, path: str):
     incoming_secret = request.headers.get("X-Proxy-Secret")
